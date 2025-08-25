@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 const App = () => {
-  const gridSize = 25; // nombre de cases par ligne/colonne
-  const defaultTileSize = 20; // taille de base
+  const gridSize = 25;
+  const defaultTileSize = 20;
 
   const [snake, setSnake] = useState([{ x: 8, y: 8 }]);
   const [food, setFood] = useState({ x: 5, y: 5, type: "normal" });
@@ -16,22 +16,17 @@ const App = () => {
   const [pointsAnimation, setPointsAnimation] = useState(null);
   const [isImmortal, setIsImmortal] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [realTileSize, setRealTileSize] = useState(defaultTileSize);
 
   const containerRef = useRef(null);
 
-  // === Sons ===
   const playEat = useRef();
   const playMagic = useRef();
   const playGameOver = useRef();
 
-  // === Joystick ===
-  const joystickBaseRef = useRef(null);
-  const [stickPos, setStickPos] = useState({ x: 0, y: 0 });
-
+  // === Sons et détection mobile ===
   useEffect(() => {
-    // Pool de sons
     const createSoundPool = (src, size = 5) => {
       const pool = Array.from({ length: size }, () => new Audio(src));
       let index = 0;
@@ -46,15 +41,12 @@ const App = () => {
     playMagic.current = createSoundPool("/sounds/magic.mp3");
     playGameOver.current = createSoundPool("/sounds/gameover.mp3");
 
-    // Détecter mobile
-    setIsMobile(window.innerWidth < 768);
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
       updateTileSize();
     };
     window.addEventListener("resize", handleResize);
 
-    // Taille réelle des cases
     const updateTileSize = () => {
       if (containerRef.current) {
         const size = Math.min(
@@ -69,43 +61,11 @@ const App = () => {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  // Boucle du jeu
-  useEffect(() => {
-    if (!isPlaying || gameOver) return;
-    const interval = setInterval(moveSnake, speed);
-    return () => clearInterval(interval);
-  }, [snake, direction, gameOver, speed, isPlaying]);
-
-  // Clavier
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
-        e.preventDefault();
-      }
-      switch (e.key) {
-        case "ArrowUp":
-          if (direction.y !== 1) setDirection({ x: 0, y: -1 });
-          break;
-        case "ArrowDown":
-          if (direction.y !== -1) setDirection({ x: 0, y: 1 });
-          break;
-        case "ArrowLeft":
-          if (direction.x !== 1) setDirection({ x: -1, y: 0 });
-          break;
-        case "ArrowRight":
-          if (direction.x !== -1) setDirection({ x: 1, y: 0 });
-          break;
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [direction]);
-
-  const moveSnake = () => {
+  // === Mouvement du serpent ===
+  const moveSnake = useCallback(() => {
     const newSnake = [...snake];
     const head = { x: newSnake[0].x + direction.x, y: newSnake[0].y + direction.y };
 
-    // Collision murs et corps
     if (
       !isImmortal &&
       (head.x < 0 ||
@@ -125,7 +85,6 @@ const App = () => {
 
     newSnake.unshift(head);
 
-    // Mange la pomme
     if (head.x === food.x && head.y === food.y) {
       let gainedPoints = 1;
       switch (food.type) {
@@ -151,12 +110,13 @@ const App = () => {
       setPointsAnimation({ x: head.x, y: head.y, points: gainedPoints });
       setTimeout(() => setPointsAnimation(null), 400);
 
-      // Nouvelle pomme toujours dans la grille
+      // Génération de nourriture en dehors du serpent
       let randX, randY;
+      const isOnSnake = (x, y) => newSnake.some(p => p.x === x && p.y === y);
       do {
         randX = Math.floor(Math.random() * gridSize);
         randY = Math.floor(Math.random() * gridSize);
-      } while (newSnake.some((p) => p.x === randX && p.y === randY));
+      } while (isOnSnake(randX, randY));
 
       const types = ["normal", "normal", "magic", "normal", "immortal"];
       const type = types[Math.floor(Math.random() * types.length)];
@@ -168,8 +128,43 @@ const App = () => {
     }
 
     setSnake(newSnake);
-  };
+  }, [snake, direction, isImmortal, food, score, bestScore, speed]);
 
+  // === Boucle du jeu ===
+  useEffect(() => {
+    if (!isPlaying || gameOver) return;
+    const interval = setInterval(moveSnake, speed);
+    return () => clearInterval(interval);
+  }, [moveSnake, speed, isPlaying, gameOver]);
+
+  // === Clavier ===
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+      }
+      switch (e.key) {
+        case "ArrowUp":
+          if (direction.y !== 1) setDirection({ x: 0, y: -1 });
+          break;
+        case "ArrowDown":
+          if (direction.y !== -1) setDirection({ x: 0, y: 1 });
+          break;
+        case "ArrowLeft":
+          if (direction.x !== 1) setDirection({ x: -1, y: 0 });
+          break;
+        case "ArrowRight":
+          if (direction.x !== -1) setDirection({ x: 1, y: 0 });
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [direction]);
+
+  // === Reset ===
   const resetGame = () => {
     setSnake([{ x: 8, y: 8 }]);
     setFood({ x: 5, y: 5, type: "normal" });
@@ -179,7 +174,6 @@ const App = () => {
     setScore(0);
     setIsImmortal(false);
     setIsPlaying(false);
-    setStickPos({ x: 0, y: 0 });
   };
 
   const getFoodColor = (type) => {
@@ -193,35 +187,57 @@ const App = () => {
     }
   };
 
-  // === Joystick Handlers ===
-  const handleTouchStart = (e) => e.preventDefault();
+  // === Joystick ===
+  const joystickRef = useRef(null);
+  const baseRef = useRef(null);
 
-  const handleTouchMove = (e) => {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const base = joystickBaseRef.current.getBoundingClientRect();
-    let x = touch.clientX - (base.left + base.width / 2);
-    let y = touch.clientY - (base.top + base.height / 2);
-    const radius = base.width / 2 - 16; // rayon max pour le stick
-    const distance = Math.sqrt(x * x + y * y);
-    if (distance > radius) {
-      x = (x / distance) * radius;
-      y = (y / distance) * radius;
-    }
-    setStickPos({ x, y });
+  const handleJoystickMove = (e) => {
+  e.preventDefault();
+  const base = baseRef.current.getBoundingClientRect();
+  const touch = e.touches[0];
+  const centerX = base.left + base.width / 2;
+  const centerY = base.top + base.height / 2;
+  const dx = touch.clientX - centerX;
+  const dy = touch.clientY - centerY;
+  const maxDist = base.width / 2;
 
-    // Détermination de la direction
-    const threshold = 10;
-    if (Math.abs(x) > Math.abs(y)) {
-      if (x > threshold && direction.x !== -1) setDirection({ x: 1, y: 0 });
-      else if (x < -threshold && direction.x !== 1) setDirection({ x: -1, y: 0 });
-    } else {
-      if (y > threshold && direction.y !== -1) setDirection({ x: 0, y: 1 });
-      else if (y < -threshold && direction.y !== 1) setDirection({ x: 0, y: -1 });
-    }
+  // Bouger la manette
+  const clampedX = Math.max(-maxDist, Math.min(dx, maxDist));
+  const clampedY = Math.max(-maxDist, Math.min(dy, maxDist));
+  joystickRef.current.style.transform = `translate(${clampedX}px, ${clampedY}px)`;
+
+  // Calcul de l'angle
+  const angle = Math.atan2(dy, dx); // -PI à PI
+  const degree = (angle * 180) / Math.PI;
+
+  // Définir direction du serpent selon l'angle
+  let newDir = { x: 0, y: 0 };
+  if (degree >= -45 && degree < 45) newDir = { x: 1, y: 0 }; // droite
+  else if (degree >= 45 && degree < 135) newDir = { x: 0, y: 1 }; // bas
+  else if (degree >= -135 && degree < -45) newDir = { x: 0, y: -1 }; // haut
+  else newDir = { x: -1, y: 0 }; // gauche
+
+  // Empêche demi-tour
+  if (!(newDir.x === -direction.x && newDir.y === -direction.y)) {
+    setDirection(newDir);
+  }
+};
+
+
+  const handleJoystickEnd = () => {
+    joystickRef.current.style.transform = `translate(0px, 0px)`;
   };
 
-  const handleTouchEnd = () => setStickPos({ x: 0, y: 0 });
+  useEffect(() => {
+    const base = baseRef.current;
+    if (!base) return;
+    base.addEventListener("touchmove", handleJoystickMove, { passive: false });
+    base.addEventListener("touchend", handleJoystickEnd);
+    return () => {
+      base.removeEventListener("touchmove", handleJoystickMove);
+      base.removeEventListener("touchend", handleJoystickEnd);
+    };
+  }, [handleJoystickMove, handleJoystickEnd]);
 
   return (
     <div
@@ -271,23 +287,21 @@ const App = () => {
               height: realTileSize,
               left: part.x * realTileSize,
               top: part.y * realTileSize,
-              transition: "left 0.1s, top 0.1s",
+              transition: "left 0.05s, top 0.05s",
               boxShadow: i === 0 ? "0 0 10px #0f0" : "0 0 6px #0f0",
             }}
           />
         ))}
 
         <div
-          className={`absolute rounded-full shadow-lg animate-bounce ${getFoodColor(
-            food.type
-          )}`}
+          className={`absolute rounded-full shadow-lg animate-bounce ${getFoodColor(food.type)}`}
           style={{
             width: realTileSize,
             height: realTileSize,
             left: food.x * realTileSize,
             top: food.y * realTileSize,
             border: "2px solid darkred",
-            transition: "left 0.1s, top 0.1s",
+            transition: "left 0.05s, top 0.05s",
           }}
         />
 
@@ -304,25 +318,53 @@ const App = () => {
         )}
       </div>
 
-      {/* Joystick mobile */}
+      {/* Mobile Controls */}
       {isMobile && isPlaying && !gameOver && (
-        <div className="flex justify-center mt-6">
+        <div className="flex w-full justify-between mt-6 px-4 z-10">
+          {/* D-pad */}
+          <div className="grid grid-cols-3 grid-rows-3 gap-2">
+            <div></div>
+            <button
+              className="flex items-center justify-center w-16 h-16 bg-gray-900 rounded-full shadow-lg active:scale-95 transition-transform"
+              onTouchStart={() => direction.y !== 1 && setDirection({ x: 0, y: -1 })}
+            >
+              <div className="w-0 h-0 border-l-8 border-r-8 border-b-12 border-l-transparent border-r-transparent border-b-white" />
+            </button>
+            <div></div>
+
+            <button
+              className="flex items-center justify-center w-16 h-16 bg-gray-900 rounded-full shadow-lg active:scale-95 transition-transform"
+              onTouchStart={() => direction.x !== 1 && setDirection({ x: -1, y: 0 })}
+            >
+              <div className="w-0 h-0 border-t-8 border-b-8 border-r-12 border-t-transparent border-b-transparent border-r-white" />
+            </button>
+            <div></div>
+            <button
+              className="flex items-center justify-center w-16 h-16 bg-gray-900 rounded-full shadow-lg active:scale-95 transition-transform"
+              onTouchStart={() => direction.x !== -1 && setDirection({ x: 1, y: 0 })}
+            >
+              <div className="w-0 h-0 border-t-8 border-b-8 border-l-12 border-t-transparent border-b-transparent border-l-white" />
+            </button>
+
+            <div></div>
+            <button
+              className="flex items-center justify-center w-16 h-16 bg-gray-900 rounded-full shadow-lg active:scale-95 transition-transform"
+              onTouchStart={() => direction.y !== -1 && setDirection({ x: 0, y: 1 })}
+            >
+              <div className="w-0 h-0 border-l-8 border-r-8 border-t-12 border-l-transparent border-r-transparent border-t-white" />
+            </button>
+            <div></div>
+          </div>
+
+          {/* Joystick */}
           <div
-            className="relative w-40 h-40 bg-gray-800 rounded-full"
-            ref={joystickBaseRef}
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
+            ref={baseRef}
+            className="relative w-32 h-32 bg-gray-800 rounded-full shadow-inner flex items-center justify-center"
           >
             <div
-  className="absolute w-16 h-16 bg-gray-400 rounded-full"
-  style={{
-    left: '50%',
-    top: '50%',
-    transform: `translate(calc(-50% + ${stickPos.x}px), calc(-50% + ${stickPos.y}px))`,
-  }}
-/>
-
+              ref={joystickRef}
+              className="absolute w-16 h-16 bg-gray-400 rounded-full shadow-lg"
+            />
           </div>
         </div>
       )}
